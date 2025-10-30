@@ -1,0 +1,73 @@
+# File: azure-pipelines.yml
+# CI/CD pipeline for GiftofGivers web
+
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+  buildConfiguration: 'Release'
+
+steps:
+# 1️⃣ Install .NET SDK
+- task: UseDotNet@2
+  inputs:
+    packageType: 'sdk'
+    version: '8.x.x' # Adjust if needed
+    includePreviewVersions: true
+
+# 2️⃣ Restore dependencies
+- script: dotnet restore "GiftofGivers web/GiftofGivers web.csproj"
+  displayName: 'Restore NuGet packages'
+
+# 3️⃣ Build project
+- script: dotnet build "GiftofGivers web/GiftofGivers web.csproj" --configuration $(buildConfiguration) --no-restore
+  displayName: 'Build project'
+
+# 4️⃣ Run tests and collect coverage
+- script: dotnet test "GiftofGivers.Tests/GiftofGivers.Tests.csproj" --configuration $(buildConfiguration) --logger "trx" /p:CollectCoverage=true /p:CoverletOutputFormat=cobertura /p:CoverletOutput=$(Build.SourcesDirectory)/coverage/
+  displayName: 'Run unit & integration tests + collect coverage'
+
+# 5️⃣ Publish test results
+- task: PublishTestResults@2
+  inputs:
+    testResultsFormat: 'VSTest'
+    testResultsFiles: '**/*.trx'
+    failTaskOnFailedTests: true
+
+# 6️⃣ Publish code coverage results
+- task: PublishCodeCoverageResults@1
+  inputs:
+    codeCoverageTool: 'Cobertura'
+    summaryFileLocation: '$(Build.SourcesDirectory)/coverage/coverage.cobertura.xml'
+    reportDirectory: '$(Build.SourcesDirectory)/coverage/'
+
+# 7️⃣ Publish web app artifact
+- task: DotNetCoreCLI@2
+  inputs:
+    command: 'publish'
+    publishWebProjects: false
+    projects: 'GiftofGivers web/GiftofGivers web.csproj'
+    arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)'
+    zipAfterPublish: true
+  displayName: 'Publish web app'
+
+# 8️⃣ Upload artifact
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'drop'
+    publishLocation: 'Container'
+
+# 9️⃣ Deploy to Azure Web App
+# Make sure you have a service connection set up in Azure DevOps named 'AzureServiceConnection'
+- task: AzureWebApp@1
+  inputs:
+    azureSubscription: 'AzureServiceConnection'
+    appType: 'webApp'
+    appName: 'Disaster-Alleviation-Foundation'  # Replace with your Azure App Service name
+    package: '$(Build.ArtifactStagingDirectory)/**/*.zip'
